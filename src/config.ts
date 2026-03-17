@@ -10,6 +10,7 @@ export type AppConfig = {
   model: string;
   temperature: number;
   maxTokens: number;
+  searchType: "auto" | "pro";
 };
 
 function requireNonEmpty(value: string | undefined, name: string): string {
@@ -38,7 +39,12 @@ export function loadConfig(argv = process.argv): AppConfig {
       "CSV header for company domain/website",
       "Company Domain"
     )
-    .option("--model <name>", "Perplexity model name", "sonar-pro")
+    .option("--model <name>", "Perplexity model name", "sonar-reasoning-pro")
+    .option(
+      "--search-type <mode>",
+      'Perplexity web search type ("auto" or "pro")',
+      "auto"
+    )
     .option("--temperature <number>", "Sampling temperature", "0.1")
     .option("--max-tokens <number>", "Max tokens", "2048");
 
@@ -51,6 +57,7 @@ export function loadConfig(argv = process.argv): AppConfig {
     model: string;
     temperature: string;
     maxTokens: string;
+    searchType: "auto" | "pro";
   }>();
 
   const apiKey = requireNonEmpty(process.env.PERPLEXITY_API_KEY, "PERPLEXITY_API_KEY");
@@ -64,6 +71,13 @@ export function loadConfig(argv = process.argv): AppConfig {
     throw new Error("--max-tokens must be a positive number");
   }
 
+  const allowedSearchTypes: Array<AppConfig["searchType"]> = ["auto", "pro"];
+  const searchType =
+    (opts.searchType as AppConfig["searchType"]) ?? ("auto" as const);
+  if (!allowedSearchTypes.includes(searchType)) {
+    throw new Error('--search-type must be one of: "auto", "pro"');
+  }
+
   return {
     apiKey,
     inputPath: requireNonEmpty(opts.input, "--input"),
@@ -72,6 +86,7 @@ export function loadConfig(argv = process.argv): AppConfig {
     domainColumn: requireNonEmpty(opts.domainColumn, "--domain-column"),
     model: requireNonEmpty(opts.model, "--model"),
     temperature,
-    maxTokens
+    maxTokens,
+    searchType
   };
 }
