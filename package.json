@@ -6,7 +6,9 @@
   "description": "CSV-driven CLI that enriches companies with observability-tool evidence via Perplexity Sonar.",
   "scripts": {
     "start": "tsx src/main.ts",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev --prefix frontend\"",
     "dev:server": "tsx watch src/server.ts",
+    "dev:frontend": "npm run dev --prefix frontend",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
@@ -20,10 +22,12 @@
     "multer": "^2.1.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
