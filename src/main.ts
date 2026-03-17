@@ -21,8 +21,7 @@ async function main(): Promise<void> {
         apiKey: config.apiKey,
         model: config.model,
         temperature: config.temperature,
-        maxTokens: config.maxTokens,
-        searchType: config.searchType
+        maxTokens: config.maxTokens
       });
 
       await writer.writeRow({

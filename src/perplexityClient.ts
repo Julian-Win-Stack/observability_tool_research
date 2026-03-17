@@ -1,9 +1,10 @@
+import { searchGoogle, type SearchResult } from "./searchApiClient.js";
+
 type PerplexityConfig = {
   apiKey: string;
   model: string;
   temperature: number;
   maxTokens: number;
-  searchType: "auto" | "pro";
 };
 
 function sleep(ms: number): Promise<void> {
@@ -12,46 +13,96 @@ function sleep(ms: number): Promise<void> {
 
 function buildSystemPrompt(): string {
   return [
-    "You are an observability-tool researcher.",
-    "Given a company name and domain, search for evidence of which observability, monitoring, logging, or APM tools this company uses (e.g., Datadog, Grafana, New Relic, Prometheus, Splunk, Dynatrace, Elastic, PagerDuty, Honeycomb, Lightstep, etc.).",
+    "You are an observability-tool judge.",
+    "You are given a company and a list of candidate web pages (URLs and snippets).",
+    "Your job is to decide, based ONLY on those pages, which observability, monitoring, logging, or APM tools this company actually uses.",
     "",
-    "First, search the web for real pages mentioning BOTH the company and an observability / monitoring / logging / APM tool.",
-    "For each candidate page, check that:",
-    "- The URL is reachable (not 404).",
-    "- The page is actually about the company AND the tool.",
-    "",
-    "IMPORTANT URL RULES:",
-    " - You must ONLY return URLs that actually exist on the live web.",
-    " - NEVER invent or guess URLs (do NOT make up slugs or IDs like /job/123456).",
-    " - If you are not sure a URL exists, do NOT output it.",
-    " - Every line you output MUST include a URL.",
-    "",
-    "Return your findings in this exact format (one line per tool found).",
-    "",
-    "Example:",
-    "Observability tool: Datadog | Evidence URL: https://jobs.ashbyhq.com/cointracker/sre-role-mentions-datadog",
+    "IMPORTANT:",
+    "- Do NOT invent tools or URLs.",
+    '- If the evidence is ambiguous or weak, you may mark a tool as "(low confidence)".',
+    '- If none of the pages clearly mention an observability/monitoring/APM tool, return exactly: Not found',
     "",
     "Output format (no markdown, no brackets, no extra text):",
     "Observability tool: <tool name> | Evidence URL: https://example.com/path",
+    "Observability tool: <tool name> | Evidence URL: https://example.com/path",
     "",
-    "When answering:",
     "Only return up to 3 tools.",
-    "If you find strong evidence (clear, direct mention of the company using the tool), output it as specified.",
-    'If evidence is weak or indirect (for example a job posting or blog suggests the tool but is not fully explicit), you may still output it but include "(low confidence)" after the tool name.',
-    'If, after searching, you cannot find any valid URLs that plausibly mention BOTH the company and an observability/monitoring/logging/APM tool, then return exactly: Not found.',
-    "Do NOT add any extra commentary, headers, or markdown formatting."
+    "It is better to return 'Not found' than to guess."
   ].join("\n");
 }
 
-function buildUserPrompt(companyName: string, domain: string): string {
-  return [
+function buildUserPrompt(
+  companyName: string,
+  domain: string,
+  candidates: SearchResult[]
+): string {
+  const lines = [
     `Company name: ${companyName}`,
     `Company domain: ${domain}`,
     "",
-    "Task: Identify any observability, monitoring, logging, or APM tools this company uses.",
-    "Search the web and check: job postings, vendor customer/case-study pages, tech blogs, conference talks, and press releases.",
-    "If you find signals, extract the specific tool name and the most direct evidence URL."
-  ].join("\n");
+    "Here are candidate pages that may contain evidence of observability/monitoring/APM tools:"
+  ];
+
+  if (candidates.length === 0) {
+    lines.push("- (no candidate pages were found)");
+  } else {
+    for (const c of candidates) {
+      lines.push(`- URL: ${c.link}`);
+      if (c.title) lines.push(`  Title: ${c.title}`);
+      if (c.snippet) lines.push(`  Snippet: ${c.snippet}`);
+      lines.push("");
+    }
+  }
+
+  lines.push(
+    "",
+    "From ONLY this evidence, decide which observability/monitoring/logging/APM tools this company uses.",
+    "If none of the pages clearly indicate a tool, return exactly: Not found."
+  );
+
+  return lines.join("\n");
+}
+
+function cleanDomain(domain: string): string {
+  return domain
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/.*$/, "");
+}
+
+function buildQueries(companyName: string, companyDomain: string): string[] {
+  return [
+    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`,
+    `site:${companyDomain} observability OR monitoring OR tracing OR "Datadog" OR "Grafana" OR "New Relic"`
+  ];
+}
+
+async function gatherSearchCandidates(
+  companyName: string,
+  companyDomain: string
+): Promise<SearchResult[]> {
+  const queries = buildQueries(companyName, companyDomain);
+  const allResults: SearchResult[] = [];
+
+  for (const q of queries) {
+    try {
+      const results = await searchGoogle(q);
+      allResults.push(...results);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[search-api] Query failed: ${q} (${message})`);
+    }
+  }
+
+  const seen = new Set<string>();
+  const unique = allResults.filter((r) => {
+    if (!r.link || seen.has(r.link)) return false;
+    seen.add(r.link);
+    return true;
+  });
+
+  return unique.slice(0, 5);
 }
 
 type ChatCompletionsResponse = {
@@ -73,20 +124,17 @@ export async function researchCompany(
   cfg: PerplexityConfig
 ): Promise<string> {
   const url = "https://api.perplexity.ai/chat/completions";
+  const companyDomain = cleanDomain(domain);
+  const candidates = await gatherSearchCandidates(companyName, companyDomain);
   const system = buildSystemPrompt();
-  const user = buildUserPrompt(companyName, domain);
+  const user = buildUserPrompt(companyName, companyDomain, candidates);
 
   const body = {
     model: cfg.model,
     temperature: cfg.temperature,
     max_tokens: cfg.maxTokens,
-    enable_search_classifier: true,
-    disable_search: false,
+    disable_search: true,
     stream: false,
-    web_search_options: {
-      search_type: cfg.searchType
-    },
-    search_language_filter: ["en"],
     messages: [
       { role: "system", content: system },
       { role: "user", content: user }
