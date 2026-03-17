@@ -6,16 +6,23 @@
   "description": "CSV-driven CLI that enriches companies with observability-tool evidence via Perplexity Sonar.",
   "scripts": {
     "start": "tsx src/main.ts",
+    "dev:server": "tsx watch src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "commander": "^14.0.0",
+    "cors": "^2.8.6",
     "csv-parse": "^6.1.0",
     "csv-stringify": "^6.6.0",
-    "dotenv": "^17.2.0"
+    "dotenv": "^17.2.0",
+    "express": "^5.2.1",
+    "multer": "^2.1.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"

@@ -1,11 +1,27 @@
 import fs from "node:fs";
 import { stringify } from "csv-stringify";
 
-type OutputRow = {
+export type OutputRow = {
   company_name: string;
   company_domain: string;
   observability_tool_research: string;
 };
+
+export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    stringify(
+      rows,
+      {
+        header: true,
+        columns: ["Company Name", "Website", "observability_tool"]
+      },
+      (err, output) => {
+        if (err) reject(err);
+        else resolve(output ?? "");
+      }
+    );
+  });
+}
 
 export class OutputCsvWriter {
   private readonly fileStream: fs.WriteStream;

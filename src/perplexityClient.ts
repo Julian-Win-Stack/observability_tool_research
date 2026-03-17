@@ -22,12 +22,13 @@ function buildSystemPrompt(): string {
     '- If the evidence is ambiguous or weak, you may mark a tool as "(low confidence)".',
     '- If none of the pages clearly mention an observability/monitoring/APM tool, return exactly: Not found',
     "",
-    "Output format (no markdown, no brackets, no extra text):",
-    "Observability tool: <tool name> | Evidence URL: https://example.com/path",
-    "Observability tool: <tool name> | Evidence URL: https://example.com/path",
+    "Output format (no markdown, no brackets, numbered list):",
+    "1. <tool name> : https://example.com/path",
+    "2. <tool name> : https://example.com/path",
+    "3. <tool name> : https://example.com/path",
     "",
     "Only return up to 3 tools.",
-    "It is better to return 'Not found' than to guess."
+    "It is better to return 'Not found' than to guess.",
   ].join("\n");
 }
 
