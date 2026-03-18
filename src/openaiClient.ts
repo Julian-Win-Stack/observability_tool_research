@@ -1,10 +1,10 @@
 import { searchGoogle, type SearchResult } from "./searchApiClient.js";
 
-type PerplexityConfig = {
+type OpenAIConfig = {
   apiKey: string;
+  baseUrl: string;
   model: string;
-  temperature: number;
-  maxTokens: number;
+  maxCompletionTokens: number;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -122,9 +122,9 @@ function extractContent(json: ChatCompletionsResponse): string | null {
 export async function researchCompany(
   companyName: string,
   domain: string,
-  cfg: PerplexityConfig
+  cfg: OpenAIConfig
 ): Promise<string> {
-  const url = "https://api.perplexity.ai/chat/completions";
+  const url = `${cfg.baseUrl}/chat/completions`;
   const companyDomain = cleanDomain(domain);
   const candidates = await gatherSearchCandidates(companyName, companyDomain);
   const system = buildSystemPrompt();
@@ -132,9 +132,7 @@ export async function researchCompany(
 
   const body = {
     model: cfg.model,
-    temperature: cfg.temperature,
-    max_tokens: cfg.maxTokens,
-    disable_search: true,
+    max_completion_tokens: cfg.maxCompletionTokens,
     stream: false,
     messages: [
       { role: "system", content: system },
@@ -150,7 +148,7 @@ export async function researchCompany(
       const res = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${cfg.apiKey}`,
+          "api-key": cfg.apiKey,
           "Content-Type": "application/json",
           Accept: "application/json"
         },
@@ -160,13 +158,13 @@ export async function researchCompany(
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(
-          `Perplexity API ${res.status} ${res.statusText}${text ? `: ${text}` : ""}`
+          `OpenAI API ${res.status} ${res.statusText}${text ? `: ${text}` : ""}`
         );
       }
 
       const json = (await res.json()) as ChatCompletionsResponse;
       const content = extractContent(json);
-      if (!content) throw new Error("Perplexity response missing message content");
+      if (!content) throw new Error("OpenAI response missing message content");
       return content;
     } catch (err) {
       lastError = err;
@@ -175,7 +173,7 @@ export async function researchCompany(
   }
 
   const msg =
-    lastError instanceof Error ? lastError.message : "Unknown error calling Perplexity";
+    lastError instanceof Error ? lastError.message : "Unknown error calling OpenAI";
   return `Error: ${msg}`;
 }
 

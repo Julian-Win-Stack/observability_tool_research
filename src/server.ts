@@ -4,7 +4,7 @@ import cors from "cors";
 import { loadServerConfig } from "./serverConfig.js";
 import { readCompanies } from "./csvReader.js";
 import { rowsToCsvString, type OutputRow } from "./csvWriter.js";
-import { researchCompany } from "./perplexityClient.js";
+import { researchCompany } from "./openaiClient.js";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -50,9 +50,9 @@ app.post("/research", upload.single("csv"), async (req, res) => {
 
       const research = await researchCompany(row.companyName, row.companyDomain, {
         apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
         model: config.model,
-        temperature: config.temperature,
-        maxTokens: config.maxTokens
+        maxCompletionTokens: config.maxCompletionTokens
       });
       rows.push({
         company_name: row.companyName,

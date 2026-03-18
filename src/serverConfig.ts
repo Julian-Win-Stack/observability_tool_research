@@ -2,11 +2,11 @@ import "dotenv/config";
 
 export type ServerConfig = {
   apiKey: string;
+  baseUrl: string;
   nameColumn: string;
   domainColumn: string;
   model: string;
-  temperature: number;
-  maxTokens: number;
+  maxCompletionTokens: number;
 };
 
 function requireEnv(name: string): string {
@@ -17,11 +17,11 @@ function requireEnv(name: string): string {
 
 export function loadServerConfig(): ServerConfig {
   return {
-    apiKey: requireEnv("PERPLEXITY_API_KEY"),
+    apiKey: requireEnv("AZURE_OPENAI_API_KEY"),
+    baseUrl: requireEnv("AZURE_OPENAI_BASE_URL"),
     nameColumn: process.env.NAME_COLUMN ?? "Company Name",
     domainColumn: process.env.DOMAIN_COLUMN ?? "Website",
-    model: process.env.MODEL ?? "sonar-reasoning-pro",
-    temperature: Number(process.env.TEMPERATURE ?? "0.1"),
-    maxTokens: Number(process.env.MAX_TOKENS ?? "2048")
+    model: process.env.MODEL ?? "gpt-5.4",
+    maxCompletionTokens: Number(process.env.MAX_COMPLETION_TOKENS ?? "2048")
   };
 }
