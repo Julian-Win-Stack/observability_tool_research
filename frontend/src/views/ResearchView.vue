@@ -10,6 +10,7 @@ const abortControllerRef = ref<AbortController | null>(null);
 const resultBlob = ref<Blob | null>(null);
 const error = ref<string | null>(null);
 const downloadUrl = ref<string | null>(null);
+const progressMessage = ref<string | null>(null);
 
 watch(resultBlob, (blob) => {
   if (downloadUrl.value) {
@@ -41,6 +42,7 @@ async function runResearch() {
   isLoading.value = true;
   error.value = null;
   resultBlob.value = null;
+  progressMessage.value = null;
   abortControllerRef.value = new AbortController();
 
   const formData = new FormData();
@@ -56,14 +58,63 @@ async function runResearch() {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error ?? `Request failed: ${res.status}`);
     }
-    const blob = await res.blob();
-    resultBlob.value = blob;
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error("Response has no body");
+    }
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const json = line.slice(6);
+        try {
+          const obj = JSON.parse(json) as { type: string; message?: string; csv?: string };
+          if (obj.type === "progress" && obj.message) {
+            progressMessage.value = obj.message;
+          } else if (obj.type === "done" && obj.csv) {
+            const binary = atob(obj.csv);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            resultBlob.value = new Blob([bytes], { type: "text/csv" });
+          } else if (obj.type === "error" && obj.message) {
+            error.value = obj.message;
+          }
+        } catch {
+          // ignore parse errors for incomplete chunks
+        }
+      }
+    }
+    if (buffer) {
+      const trimmed = buffer.trim();
+      if (trimmed.startsWith("data: ")) {
+        try {
+          const obj = JSON.parse(trimmed.slice(6)) as { type: string; message?: string; csv?: string };
+          if (obj.type === "done" && obj.csv) {
+            const binary = atob(obj.csv);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            resultBlob.value = new Blob([bytes], { type: "text/csv" });
+          } else if (obj.type === "error" && obj.message) {
+            error.value = obj.message;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
   } catch (err) {
     if ((err as Error).name !== "AbortError") {
       error.value = err instanceof Error ? err.message : String(err);
     }
   } finally {
     isLoading.value = false;
+    progressMessage.value = null;
   }
 }
 
@@ -72,6 +123,7 @@ function restart() {
   selectedFile.value = null;
   resultBlob.value = null;
   error.value = null;
+  progressMessage.value = null;
   isLoading.value = false;
   if (fileInput.value) {
     fileInput.value.value = "";
@@ -139,18 +191,23 @@ function restart() {
         <!-- Status -->
         <div
           v-if="isLoading || error || resultBlob"
-          class="rounded-md border border-zinc-700/60 bg-[#12151a] px-2.5 py-2"
+          class="rounded-md border border-zinc-700/60 bg-[#12151a] px-2.5 py-2 flex flex-col gap-2"
         >
-          <div v-if="isLoading" class="flex items-center gap-2">
-            <svg class="w-3 h-3 text-indigo-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-            <span class="text-[13px] text-zinc-400">Researching&hellip;</span>
-          </div>
-          <p v-else-if="error" class="text-[13px] text-red-400">
+          <p v-if="error" class="text-[13px] text-red-400">
             {{ error }}
           </p>
+          <template v-else-if="isLoading">
+            <div class="flex items-center gap-2">
+              <svg class="w-3 h-3 text-indigo-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <span class="text-[13px] text-zinc-400">Researching&hellip;</span>
+            </div>
+            <p v-if="progressMessage" class="text-[13px] text-zinc-500 truncate">
+              {{ progressMessage }}
+            </p>
+          </template>
           <div
             v-else-if="resultBlob"
             class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5"

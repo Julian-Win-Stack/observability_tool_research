@@ -13,7 +13,11 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
       rows,
       {
         header: true,
-        columns: ["Company Name", "Website", "observability_tool"]
+        columns: [
+          { key: "company_name", header: "Company Name" },
+          { key: "company_domain", header: "Website" },
+          { key: "observability_tool_research", header: "observability_tool" }
+        ]
       },
       (err, output) => {
         if (err) reject(err);
@@ -33,7 +37,11 @@ export class OutputCsvWriter {
 
     this.stringifier = stringify({
       header: true,
-      columns: ["company_name", "company_domain", "observability_tool_research"]
+      columns: [
+        { key: "company_name", header: "Company Name" },
+        { key: "company_domain", header: "Website" },
+        { key: "observability_tool_research", header: "observability_tool" }
+      ]
     });
 
     this.stringifier.pipe(this.fileStream);
