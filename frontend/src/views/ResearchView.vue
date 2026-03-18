@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from "vue";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const showGuide = ref(false);
 
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -12,6 +12,8 @@ const resultBlob = ref<Blob | null>(null);
 const error = ref<string | null>(null);
 const downloadUrl = ref<string | null>(null);
 const progressMessage = ref<string | null>(null);
+const warnings = ref<string[]>([]);
+const isDragging = ref(false);
 
 watch(resultBlob, (blob) => {
   if (downloadUrl.value) {
@@ -30,9 +32,35 @@ onBeforeUnmount(() => {
 function onFileChange(e: Event) {
   const target = e.target as HTMLInputElement;
   const file = target.files?.[0];
-  selectedFile.value = file ?? null;
+  selectFile(file ?? null);
+}
+
+function selectFile(file: File | null) {
+  if (file && !file.name.endsWith(".csv")) {
+    error.value = "Please select a .csv file.";
+    return;
+  }
+  selectedFile.value = file;
   error.value = null;
   resultBlob.value = null;
+  warnings.value = [];
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (!isLoading.value) isDragging.value = true;
+}
+
+function onDragLeave() {
+  isDragging.value = false;
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = false;
+  if (isLoading.value) return;
+  const file = e.dataTransfer?.files[0] ?? null;
+  selectFile(file);
 }
 
 async function runResearch() {
@@ -44,6 +72,7 @@ async function runResearch() {
   error.value = null;
   resultBlob.value = null;
   progressMessage.value = null;
+  warnings.value = [];
   abortControllerRef.value = new AbortController();
 
   const formData = new FormData();
@@ -78,6 +107,8 @@ async function runResearch() {
           const obj = JSON.parse(json) as { type: string; message?: string; csv?: string };
           if (obj.type === "progress" && obj.message) {
             progressMessage.value = obj.message;
+          } else if (obj.type === "warning" && obj.message) {
+            warnings.value = [...warnings.value, obj.message];
           } else if (obj.type === "done" && obj.csv) {
             const binary = atob(obj.csv);
             const bytes = new Uint8Array(binary.length);
@@ -125,6 +156,8 @@ function restart() {
   resultBlob.value = null;
   error.value = null;
   progressMessage.value = null;
+  warnings.value = [];
+  isDragging.value = false;
   isLoading.value = false;
   if (fileInput.value) {
     fileInput.value.value = "";
@@ -183,14 +216,19 @@ function restart() {
       <div
         class="rounded-lg border border-zinc-700/80 bg-[#161920] shadow-lg shadow-black/20 px-3.5 py-4.5 flex flex-col gap-3.5"
       >
-        <!-- Custom file upload -->
+        <!-- Custom file upload with drag-and-drop -->
         <label
           :class="[
-            'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[31px] rounded-md border border-dashed border-zinc-600/80 bg-[#12151a] px-2.5 py-2 cursor-pointer transition-all duration-200',
-            isLoading
-              ? 'opacity-50 pointer-events-none cursor-not-allowed'
-              : 'hover:border-indigo-500/50 hover:bg-[#14171e] focus-within:ring-2 focus-within:ring-indigo-500/60 focus-within:ring-offset-1 focus-within:ring-offset-[#161920]'
+            'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[31px] rounded-md border border-dashed bg-[#12151a] px-2.5 py-2 cursor-pointer transition-all duration-200',
+            isDragging
+              ? 'border-indigo-500 bg-[#14171e]'
+              : isLoading
+                ? 'border-zinc-600/80 opacity-50 pointer-events-none cursor-not-allowed'
+                : 'border-zinc-600/80 hover:border-indigo-500/50 hover:bg-[#14171e] focus-within:ring-2 focus-within:ring-indigo-500/60 focus-within:ring-offset-1 focus-within:ring-offset-[#161920]'
           ]"
+          @dragover="onDragOver"
+          @dragleave="onDragLeave"
+          @drop="onDrop"
         >
           <input
             ref="fileInput"
@@ -201,7 +239,7 @@ function restart() {
             @change="onFileChange"
           />
           <span class="text-[13px] font-medium text-indigo-400">
-            {{ selectedFile ? "Change file" : "Choose file" }}
+            {{ isDragging ? "Drop CSV here" : selectedFile ? "Change file" : "Choose or drop file" }}
           </span>
           <span class="text-[13px] text-zinc-500 truncate">
             {{ selectedFile ? selectedFile.name : "No file selected" }}
@@ -232,6 +270,16 @@ function restart() {
           >
             Research
           </button>
+        </div>
+
+        <!-- Warnings -->
+        <div
+          v-if="warnings.length > 0"
+          class="rounded-md border border-amber-700/40 bg-amber-950/20 px-2.5 py-2 flex flex-col gap-1"
+        >
+          <p v-for="(w, i) in warnings" :key="i" class="text-[12px] text-amber-400 leading-relaxed">
+            {{ w }}
+          </p>
         </div>
 
         <!-- Status -->

@@ -8,6 +8,7 @@ import { readCompanies } from "./csvReader.js";
 import { rowsToCsvString, type OutputRow } from "./csvWriter.js";
 import { researchCompany } from "./openaiClient.js";
 
+const MAX_ROWS = 200;
 const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
@@ -39,6 +40,18 @@ app.post("/research", upload.single("csv"), async (req, res) => {
 
   try {
     const config = loadServerConfig();
+
+    const firstLine = csvBuffer.split("\n")[0] ?? "";
+    const headers = firstLine.split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+    if (!headers.includes(config.nameColumn) || !headers.includes(config.domainColumn)) {
+      sendSSE(res, {
+        type: "error",
+        message: `CSV must have columns "${config.nameColumn}" and "${config.domainColumn}". Found: ${headers.join(", ")}`
+      });
+      res.end();
+      return;
+    }
+
     const rows: OutputRow[] = [];
 
     for await (const row of readCompanies({
@@ -46,6 +59,11 @@ app.post("/research", upload.single("csv"), async (req, res) => {
       nameColumn: config.nameColumn,
       domainColumn: config.domainColumn
     })) {
+      if (rows.length >= MAX_ROWS) {
+        sendSSE(res, { type: "warning", message: `Row limit reached (${MAX_ROWS}). Remaining rows skipped.` });
+        break;
+      }
+
       const processingMsg = `Processing row ${row.rowNumber}: ${row.companyName}`;
       console.log(`[server] ${processingMsg}`);
       sendSSE(res, { type: "progress", message: processingMsg });
@@ -56,6 +74,13 @@ app.post("/research", upload.single("csv"), async (req, res) => {
         model: config.model,
         maxCompletionTokens: config.maxCompletionTokens
       });
+
+      if (research.startsWith("Error:")) {
+        const warnMsg = `Warning: research failed for ${row.companyName} — ${research}`;
+        console.warn(`[server] ${warnMsg}`);
+        sendSSE(res, { type: "warning", message: warnMsg });
+      }
+
       rows.push({
         company_name: row.companyName,
         company_domain: row.companyDomain,

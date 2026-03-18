@@ -3,7 +3,7 @@ import "dotenv/config";
 const SEARCH_API_KEY = process.env.SEARCHAPI_API_KEY ?? "";
 
 if (!SEARCH_API_KEY) {
-  throw new Error("SEARCHAPI_API_KEY is required");
+  throw new Error("SEARCHAPI_API_KEY is required. Set it in your .env file.");
 }
 
 export type SearchResult = {
@@ -28,7 +28,8 @@ export async function searchGoogle(query: string): Promise<SearchResult[]> {
 
   const res = await fetch(url.toString(), {
     method: "GET",
-    headers: { Accept: "application/json" }
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000)
   });
 
   if (!res.ok) {

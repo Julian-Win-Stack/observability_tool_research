@@ -152,7 +152,8 @@ export async function researchCompany(
           "Content-Type": "application/json",
           Accept: "application/json"
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000)
       });
 
       if (!res.ok) {
