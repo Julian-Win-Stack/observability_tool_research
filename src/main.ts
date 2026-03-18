@@ -1,7 +1,7 @@
 import { loadConfig } from "./config.js";
 import { readCompanies } from "./csvReader.js";
 import { OutputCsvWriter } from "./csvWriter.js";
-import { researchCompany } from "./perplexityClient.js";
+import { researchCompany } from "./openaiClient.js";
 
 async function main(): Promise<void> {
   const config = loadConfig(process.argv);
@@ -19,9 +19,9 @@ async function main(): Promise<void> {
 
       const research = await researchCompany(row.companyName, row.companyDomain, {
         apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
         model: config.model,
-        temperature: config.temperature,
-        maxTokens: config.maxTokens
+        maxCompletionTokens: config.maxCompletionTokens
       });
 
       await writer.writeRow({

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from "vue";
 
-const API_URL = "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);

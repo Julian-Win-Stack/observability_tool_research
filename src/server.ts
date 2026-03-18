@@ -1,3 +1,5 @@
+import path from "path";
+import { existsSync } from "fs";
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -76,6 +78,13 @@ app.post("/research", upload.single("csv"), async (req, res) => {
     res.end();
   }
 });
+
+// Serve built frontend in production (e.g. Docker) — must be after API routes
+const frontendDist = path.join(process.cwd(), "frontend", "dist");
+if (existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get(/.*/, (_req, res) => res.sendFile(path.join(frontendDist, "index.html")));
+}
 
 const PORT = Number(process.env.PORT ?? 3000);
 app.listen(PORT, () => {

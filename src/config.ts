@@ -3,13 +3,13 @@ import { Command } from "commander";
 
 export type AppConfig = {
   apiKey: string;
+  baseUrl: string;
   inputPath: string;
   outputPath: string;
   nameColumn: string;
   domainColumn: string;
   model: string;
-  temperature: number;
-  maxTokens: number;
+  maxCompletionTokens: number;
 };
 
 function requireNonEmpty(value: string | undefined, name: string): string {
@@ -24,7 +24,7 @@ export function loadConfig(argv = process.argv): AppConfig {
   program
     .name("observability-tool-research")
     .description(
-      "Enrich companies in a CSV with observability-tool evidence via Perplexity Sonar."
+      "Enrich companies in a CSV with observability-tool evidence via OpenAI."
     )
     .requiredOption("-i, --input <path>", "Input CSV path")
     .option("-o, --output <path>", "Output CSV path", "output.csv")
@@ -38,9 +38,8 @@ export function loadConfig(argv = process.argv): AppConfig {
       "CSV header for company domain/website",
       "Company Domain"
     )
-    .option("--model <name>", "Perplexity model name", "sonar-reasoning-pro")
-    .option("--temperature <number>", "Sampling temperature", "0.1")
-    .option("--max-tokens <number>", "Max tokens", "2048");
+    .option("--model <name>", "OpenAI model name", "o4-mini")
+    .option("--max-completion-tokens <number>", "Max completion tokens", "2048");
 
   program.parse(argv);
   const opts = program.opts<{
@@ -49,29 +48,25 @@ export function loadConfig(argv = process.argv): AppConfig {
     nameColumn: string;
     domainColumn: string;
     model: string;
-    temperature: string;
-    maxTokens: string;
+    maxCompletionTokens: string;
   }>();
 
-  const apiKey = requireNonEmpty(process.env.PERPLEXITY_API_KEY, "PERPLEXITY_API_KEY");
+  const apiKey = requireNonEmpty(process.env.AZURE_OPENAI_API_KEY, "AZURE_OPENAI_API_KEY");
+  const baseUrl = requireNonEmpty(process.env.AZURE_OPENAI_BASE_URL, "AZURE_OPENAI_BASE_URL");
 
-  const temperature = Number(opts.temperature);
-  const maxTokens = Number(opts.maxTokens);
-  if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
-    throw new Error("--temperature must be a number between 0 and 2");
-  }
-  if (!Number.isFinite(maxTokens) || maxTokens <= 0) {
-    throw new Error("--max-tokens must be a positive number");
+  const maxCompletionTokens = Number(opts.maxCompletionTokens);
+  if (!Number.isFinite(maxCompletionTokens) || maxCompletionTokens <= 0) {
+    throw new Error("--max-completion-tokens must be a positive number");
   }
 
   return {
     apiKey,
+    baseUrl,
     inputPath: requireNonEmpty(opts.input, "--input"),
     outputPath: requireNonEmpty(opts.output, "--output"),
     nameColumn: requireNonEmpty(opts.nameColumn, "--name-column"),
     domainColumn: requireNonEmpty(opts.domainColumn, "--domain-column"),
     model: requireNonEmpty(opts.model, "--model"),
-    temperature,
-    maxTokens
+    maxCompletionTokens
   };
 }
