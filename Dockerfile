@@ -14,8 +14,7 @@ RUN npm ci --prefix frontend 2>/dev/null || npm install --prefix frontend
 # Copy source code
 COPY . .
 
-# Build frontend (empty VITE_API_URL = same-origin for production)
-ENV VITE_API_URL=
+# Build frontend (VITE_API_URL comes from frontend/.env.production)
 RUN npm run build --prefix frontend
 
 # Build backend
