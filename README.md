@@ -14,7 +14,7 @@ Built to eliminate hours of manual research per week across an entire GTM team.
 
 ## Problem
 
-In our GTM motion, we target companies based on their observability stack — specifically, whether they use Datadog, Grafana, New Relic, or similar tools.
+In our GTM motion, we target companies based on their observability stack - specifically, whether they use Datadog, Grafana, New Relic, or similar tools.
 
 The old process:
 
@@ -25,7 +25,7 @@ The old process:
 
 For a list of 50 companies, this took **hours**. Multiply that by every SDR on the team, every week.
 
-I tried solving this with [OpenClaw](https://openclaw.com) early on, but at the time it couldn't handle this kind of multi-source, evidence-based research at the quality level we needed. Results were inconsistent and required manual verification anyway — which defeated the purpose.
+I tried solving this with [OpenClaw](https://openclaw.com) early on, but at the time it couldn't handle this kind of multi-source, evidence-based research at the quality level we needed. Results were inconsistent and required manual verification anyway - which defeated the purpose.
 
 So I built the tool myself.
 
@@ -55,7 +55,7 @@ For each company in the uploaded CSV:
 ## Features
 
 - CSV upload with real-time progress streaming (SSE)
-- Evidence-based research — every result links back to a source URL
+- Evidence-based research - every result links back to a source URL
 - Confidence indicators for ambiguous findings
 - Retry logic with exponential backoff for API resilience
 - Configurable CSV column mapping via environment variables
@@ -85,11 +85,11 @@ CSV Response (base64-encoded, streamed back)
 
 - **SearchAPI + LLM instead of LLM-only** — LLMs hallucinate tool usage when asked directly. By feeding real search results as context and disabling the model's own web access, the tool only reports what it can back with evidence. This was the single biggest quality improvement over my OpenClaw attempt.
 
-- **SSE streaming over polling** — Processing 50 companies takes minutes. SSE lets the frontend show which company is being processed in real time, so users know the tool is working and can estimate remaining time.
+- **SSE streaming over polling** - Processing 50 companies takes minutes. SSE lets the frontend show which company is being processed in real time, so users know the tool is working and can estimate remaining time.
 
-- **Express serving the frontend in production** — Instead of deploying frontend and backend separately, the backend serves the built Vue app as static files. One container, one URL, one deployment. Simpler for a small team.
+- **Express serving the frontend in production** - Instead of deploying frontend and backend separately, the backend serves the built Vue app as static files. One container, one URL, one deployment. Simpler for a small team.
 
-- **Docker for team distribution** — Non-technical GTM teammates can run the tool locally with a single `docker run` command. No Node.js installation, no environment setup.
+- **Docker for team distribution** - Non-technical GTM teammates can run the tool locally with a single `docker run` command. No Node.js installation, no environment setup.
 
 ---
 
@@ -147,7 +147,7 @@ Open **http://localhost:3000**.
 
 ## Why I Built This
 
-I'm a builder at an early-stage startup. Our GTM team was spending hours every week manually researching which companies use which observability tools — just to qualify accounts.
+I'm a builder at an early-stage startup. Our GTM team was spending hours every week manually researching which companies use which observability tools - just to qualify accounts.
 
 I tried off-the-shelf AI research tools. They weren't reliable enough for this specific task. So I built a purpose-built tool that combines targeted search with structured LLM analysis to get evidence-backed results.
 
