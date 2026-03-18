@@ -2,6 +2,7 @@
 import { ref, watch, onBeforeUnmount } from "vue";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const showGuide = ref(false);
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
@@ -133,6 +134,51 @@ function restart() {
 
 <template>
   <div class="min-h-screen bg-[#0f1115] flex items-center justify-center p-4">
+    <!-- Help toggle -->
+    <button
+      type="button"
+      class="fixed top-4 right-4 z-50 w-7 h-7 rounded-full border border-zinc-600/80 bg-[#161920] text-zinc-400 text-[13px] font-medium
+             hover:border-indigo-500/50 hover:text-indigo-400 hover:bg-[#1a1e28]
+             focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
+             transition-all duration-150 flex items-center justify-center"
+      @click="showGuide = !showGuide"
+    >?</button>
+
+    <!-- Guide panel -->
+    <transition
+      enter-active-class="transition-all duration-200 ease-out"
+      leave-active-class="transition-all duration-150 ease-in"
+      enter-from-class="opacity-0 translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-1"
+    >
+      <div
+        v-if="showGuide"
+        class="fixed top-14 right-4 z-40 w-[320px] rounded-lg border border-zinc-700/80 bg-[#161920] shadow-xl shadow-black/30 px-4 py-4"
+      >
+        <h3 class="text-[13px] font-semibold text-zinc-200 mb-2">Using Your Own Company List</h3>
+        <p class="text-[12px] text-zinc-400 leading-relaxed mb-3">
+          You can also use this tool for companies that aren't directly downloaded from Apollo.
+        </p>
+        <p class="text-[12px] text-zinc-400 mb-1.5">To do this:</p>
+        <ol class="text-[12px] text-zinc-400 leading-relaxed space-y-1.5 list-decimal list-inside mb-3">
+          <li>Create a spreadsheet with exactly these two column names:
+            <span class="inline-flex gap-1.5 mt-1 ml-1">
+              <code class="px-1.5 py-0.5 rounded bg-zinc-800 text-indigo-400 text-[11px] font-mono">Company Name</code>
+              <code class="px-1.5 py-0.5 rounded bg-zinc-800 text-indigo-400 text-[11px] font-mono">Website</code>
+            </span>
+          </li>
+          <li>Add your list of companies under those columns</li>
+          <li>Export the file as a CSV</li>
+          <li>Upload the CSV into the app and run the research as usual</li>
+        </ol>
+        <p class="text-[11px] text-zinc-500 leading-relaxed border-t border-zinc-700/60 pt-2.5">
+          Make sure the column names match exactly, otherwise the app won't recognize them.
+        </p>
+      </div>
+    </transition>
+
     <div class="w-full max-w-[396px]">
       <div
         class="rounded-lg border border-zinc-700/80 bg-[#161920] shadow-lg shadow-black/20 px-3.5 py-4.5 flex flex-col gap-3.5"
