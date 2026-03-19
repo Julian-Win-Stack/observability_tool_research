@@ -8,6 +8,8 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
 const isLoading = ref(false);
 const abortControllerRef = ref<AbortController | null>(null);
+const pollingIntervalId = ref<number | null>(null);
+const pollingSwitchTimeoutId = ref<number | null>(null);
 const resultBlob = ref<Blob | null>(null);
 const error = ref<string | null>(null);
 const downloadUrl = ref<string | null>(null);
@@ -68,6 +70,13 @@ async function runResearch() {
     error.value = "Please select a CSV file first.";
     return;
   }
+
+  // Stop any previous polling loop (if user clicks quickly).
+  if (pollingIntervalId.value !== null) {
+    clearInterval(pollingIntervalId.value);
+    pollingIntervalId.value = null;
+  }
+
   isLoading.value = true;
   error.value = null;
   resultBlob.value = null;
@@ -88,58 +97,110 @@ async function runResearch() {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error ?? `Request failed: ${res.status}`);
     }
-    const reader = res.body?.getReader();
-    if (!reader) {
-      throw new Error("Response has no body");
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const json = line.slice(6);
-        try {
-          const obj = JSON.parse(json) as { type: string; message?: string; csv?: string };
-          if (obj.type === "progress" && obj.message) {
-            progressMessage.value = obj.message;
-          } else if (obj.type === "warning" && obj.message) {
-            warnings.value = [...warnings.value, obj.message];
-          } else if (obj.type === "done" && obj.csv) {
-            const binary = atob(obj.csv);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            resultBlob.value = new Blob([bytes], { type: "text/csv" });
-          } else if (obj.type === "error" && obj.message) {
-            error.value = obj.message;
-          }
-        } catch {
-          // ignore parse errors for incomplete chunks
-        }
+
+    const start = (await res.json()) as { jobId?: string };
+    if (!start.jobId) throw new Error("Server did not return a jobId");
+
+    const jobId = start.jobId;
+
+    const pollOnce = async (): Promise<"continue" | "stop"> => {
+      const pollRes = await fetch(`${API_URL}/status/${jobId}`, {
+        method: "GET",
+        signal: abortControllerRef.value?.signal
+      });
+
+      if (pollRes.status === 404) {
+        error.value = "Job not found. The server may have restarted.";
+        return "stop";
       }
-    }
-    if (buffer) {
-      const trimmed = buffer.trim();
-      if (trimmed.startsWith("data: ")) {
-        try {
-          const obj = JSON.parse(trimmed.slice(6)) as { type: string; message?: string; csv?: string };
-          if (obj.type === "done" && obj.csv) {
-            const binary = atob(obj.csv);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            resultBlob.value = new Blob([bytes], { type: "text/csv" });
-          } else if (obj.type === "error" && obj.message) {
-            error.value = obj.message;
-          }
-        } catch {
-          // ignore
-        }
+
+      if (!pollRes.ok) {
+        const text = await pollRes.text().catch(() => "");
+        throw new Error(text || `Request failed: ${pollRes.status}`);
       }
-    }
+
+      const obj = (await pollRes.json()) as
+        | { status: "processing"; message?: string; totalRows?: number; currentRow?: number; warnings?: string[] }
+        | { status: "done"; csv: string; warnings?: string[] }
+        | { status: "error"; error: string };
+
+      if (obj.status === "processing") {
+        if (obj.message) progressMessage.value = obj.message;
+        const incoming = obj.warnings ?? [];
+        // Backend returns the full warnings array, so dedupe to avoid duplicates.
+        warnings.value = Array.from(new Set([...warnings.value, ...incoming]));
+        return "continue";
+      }
+
+      if (obj.status === "done") {
+        const binary = atob(obj.csv);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        resultBlob.value = new Blob([bytes], { type: "text/csv" });
+        progressMessage.value = null;
+        return "stop";
+      }
+
+      // obj.status === "error"
+      error.value = obj.error ?? "Unknown error";
+      return "stop";
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      let pollingInFlight = false;
+      const FAST_INTERVAL_MS = 1000;
+      const SLOW_INTERVAL_MS = 2500;
+      const FAST_PHASE_DURATION_MS = 30_000;
+
+      const clearPolling = (): void => {
+        if (pollingIntervalId.value !== null) {
+          clearInterval(pollingIntervalId.value);
+          pollingIntervalId.value = null;
+        }
+        if (pollingSwitchTimeoutId.value !== null) {
+          clearTimeout(pollingSwitchTimeoutId.value);
+          pollingSwitchTimeoutId.value = null;
+        }
+      };
+
+      const startPollingInterval = (intervalMs: number): void => {
+        if (pollingIntervalId.value !== null) {
+          clearInterval(pollingIntervalId.value);
+        }
+        pollingIntervalId.value = window.setInterval(() => {
+          if (pollingInFlight) return;
+          pollingInFlight = true;
+          void pollOnce()
+            .then((shouldStop) => {
+              if (shouldStop === "stop") stop();
+            })
+            .catch((e) => {
+              reject(e);
+            })
+            .finally(() => {
+              pollingInFlight = false;
+            });
+        }, intervalMs);
+      };
+
+      const stop = (): void => {
+        clearPolling();
+        resolve();
+      };
+
+      startPollingInterval(FAST_INTERVAL_MS);
+      pollingSwitchTimeoutId.value = window.setTimeout(() => {
+        startPollingInterval(SLOW_INTERVAL_MS);
+        pollingSwitchTimeoutId.value = null;
+      }, FAST_PHASE_DURATION_MS);
+
+      // First poll immediately so UI updates sooner.
+      void pollOnce()
+        .then((shouldStop) => {
+          if (shouldStop === "stop") stop();
+        })
+        .catch((e) => reject(e));
+    });
   } catch (err) {
     if ((err as Error).name !== "AbortError") {
       error.value = err instanceof Error ? err.message : String(err);
@@ -147,11 +208,27 @@ async function runResearch() {
   } finally {
     isLoading.value = false;
     progressMessage.value = null;
+    if (pollingIntervalId.value !== null) {
+      clearInterval(pollingIntervalId.value);
+      pollingIntervalId.value = null;
+    }
+    if (pollingSwitchTimeoutId.value !== null) {
+      clearTimeout(pollingSwitchTimeoutId.value);
+      pollingSwitchTimeoutId.value = null;
+    }
   }
 }
 
 function restart() {
   abortControllerRef.value?.abort();
+  if (pollingIntervalId.value !== null) {
+    clearInterval(pollingIntervalId.value);
+    pollingIntervalId.value = null;
+  }
+  if (pollingSwitchTimeoutId.value !== null) {
+    clearTimeout(pollingSwitchTimeoutId.value);
+    pollingSwitchTimeoutId.value = null;
+  }
   selectedFile.value = null;
   resultBlob.value = null;
   error.value = null;
