@@ -46,15 +46,17 @@ The entire GTM team now uses this to prep account lists in minutes instead of ho
 For each company in the uploaded CSV:
 
 1. **Search** — Runs targeted Google queries via SearchAPI to find pages mentioning observability/monitoring tools on or about the company
-2. **Analyze** — Feeds the top search results into OpenAI (o4-mini) with a structured prompt that acts as an "observability tool judge"
+2. **Analyze** — Feeds the top search results into OpenAI (GPT-5.4) with a structured prompt that acts as an "observability tool judge"
 3. **Verify** — The LLM only reports tools it can back with evidence from the search results. If evidence is weak, it says so. If nothing is found, it returns "Not found" instead of guessing
-4. **Stream** — Results stream back to the UI in real time via SSE, so you see progress as each company is processed
+4. **Process + Poll** — The backend starts a background job and returns a `jobId` immediately. The frontend polls status updates to show exactly which row is being processed and when results are ready
 
 ---
 
 ## Features
 
-- CSV upload with real-time progress streaming (SSE)
+- CSV upload with background processing and polling-based progress updates
+- Row-level status updates (e.g. "Processing row X") so users know the app is still running
+- Adaptive polling: 1s intervals for the first 30 seconds, then 3s intervals for long-running jobs
 - Evidence-based research - every result links back to a source URL
 - Confidence indicators for ambiguous findings
 - Retry logic with exponential backoff for API resilience
@@ -69,23 +71,31 @@ For each company in the uploaded CSV:
 ```
 Browser (Vue.js)
   |
-  | CSV upload + SSE stream
+  | POST /research (gets jobId)
+  | GET /status/:jobId (polling)
+  | POST /cancel/:jobId (optional stop)
   v
 Express API Server (Node.js / TypeScript)
   |
+  |--- In-memory job store (pending/processing/done/error/cancelled)
+  |
   |--- SearchAPI (Google search for evidence)
   |
-  |--- Azure OpenAI (o4-mini, structured analysis)
+  |--- Azure OpenAI (GPT-5.4, structured analysis)
   |
   v
-CSV Response (base64-encoded, streamed back)
+CSV Response (base64-encoded, returned when job is done)
 ```
 
 ### Key Decisions
 
 - **SearchAPI + LLM instead of LLM-only** — LLMs hallucinate tool usage when asked directly. By feeding real search results as context and disabling the model's own web access, the tool only reports what it can back with evidence. This was the single biggest quality improvement over my OpenClaw attempt.
 
-- **SSE streaming over polling** - Processing 50 companies takes minutes. SSE lets the frontend show which company is being processed in real time, so users know the tool is working and can estimate remaining time.
+- **Background jobs + polling over one long SSE stream** - For 200+ companies, runs can take around 15 minutes. Long-lived streams are fragile on strict networks/proxies and can drop mid-run. Background jobs decouple processing from the client connection, so the system is much more reliable.
+
+- **Visible row-level progress to reduce user anxiety** - Long runs can look like a freeze if there is no feedback. Showing "Processing row X" makes it clear the app is still running and builds trust during 10-15 minute jobs.
+
+- **Adaptive polling for UX + reliability** - The UI polls every 1 second for the first 30 seconds so users immediately see movement, then switches to every 3 seconds once they are no longer staring at the screen. This keeps the app feeling responsive without unnecessary long-run request pressure.
 
 - **Express serving the frontend in production** - Instead of deploying frontend and backend separately, the backend serves the built Vue app as static files. One container, one URL, one deployment. Simpler for a small team.
 
@@ -97,7 +107,9 @@ CSV Response (base64-encoded, streamed back)
 
 - Two-stage research pipeline (search → analyze) for evidence-grounded results
 - Structured LLM prompting with strict output format constraints to prevent hallucination
-- Server-Sent Events with 2KB padding to force HTTP flush on each progress update
+- Background job orchestration with in-memory job state and polling status endpoints
+- Job cancellation endpoint (`POST /cancel/:jobId`) with early-exit behavior in the processor loop
+- Adaptive polling strategy (fast initial updates, slower long-run cadence)
 - Multi-stage Docker build for minimal production image size
 - Exponential backoff retry logic for external API calls
 - Configurable via environment variables (model, token limits, CSV column names)
@@ -110,7 +122,8 @@ CSV Response (base64-encoded, streamed back)
 | Decision | Why | What I gave up |
 |----------|-----|----------------|
 | SearchAPI over direct scraping | Reliable, structured results without building a crawler | Per-query cost, rate limits |
-| o4-mini over GPT-4o | Cheaper per-token for a structured classification task | Slightly less reasoning depth |
+| GPT-5.4 over o4-mini | Faster responses for this workflow, especially on long runs | Potentially higher cost depending on usage |
+| Background jobs + polling over SSE | More reliable for 200+ row jobs and strict networks/proxies | Slightly more backend complexity (job state + polling endpoints) |
 | Single-container deploy | Simple for a 4-person team | Can't scale frontend/backend independently |
 | No database | Results are per-session CSV downloads; no persistence needed | No historical lookup or caching |
 | No auth | Internal tool behind Docker; team trusts each other | Can't expose publicly without adding auth |
