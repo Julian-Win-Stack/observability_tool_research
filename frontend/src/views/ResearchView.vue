@@ -16,6 +16,43 @@ const downloadUrl = ref<string | null>(null);
 const progressMessage = ref<string | null>(null);
 const warnings = ref<string[]>([]);
 const isDragging = ref(false);
+const batchJobId = ref<string | null>(null);
+
+const singleCompanyName = ref("");
+const singleWebsite = ref("");
+const singleIsLoading = ref(false);
+const singleAbortControllerRef = ref<AbortController | null>(null);
+const singlePollingIntervalId = ref<number | null>(null);
+const singlePollingSwitchTimeoutId = ref<number | null>(null);
+const singleJobId = ref<string | null>(null);
+const singleProgressMessage = ref<string | null>(null);
+const singleWarnings = ref<string[]>([]);
+const singleError = ref<string | null>(null);
+const singleResults = ref<Array<{ id: number; text: string }>>([]);
+
+function decodeCsvBase64(csvBase64: string): Blob {
+  const binary = atob(csvBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: "text/csv" });
+}
+
+function normalizeWebsiteInput(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    const parsed = new URL(withScheme);
+    const hostname = parsed.hostname.trim().toLowerCase().replace(/^www\./, "");
+    return hostname || null;
+  } catch {
+    return null;
+  }
+}
 
 watch(resultBlob, (blob) => {
   if (downloadUrl.value) {
@@ -29,6 +66,12 @@ watch(resultBlob, (blob) => {
 
 onBeforeUnmount(() => {
   if (downloadUrl.value) URL.revokeObjectURL(downloadUrl.value);
+  if (pollingIntervalId.value !== null) clearInterval(pollingIntervalId.value);
+  if (pollingSwitchTimeoutId.value !== null) clearTimeout(pollingSwitchTimeoutId.value);
+  if (singlePollingIntervalId.value !== null) clearInterval(singlePollingIntervalId.value);
+  if (singlePollingSwitchTimeoutId.value !== null) clearTimeout(singlePollingSwitchTimeoutId.value);
+  abortControllerRef.value?.abort();
+  singleAbortControllerRef.value?.abort();
 });
 
 function onFileChange(e: Event) {
@@ -78,6 +121,7 @@ async function runResearch() {
   }
 
   isLoading.value = true;
+  batchJobId.value = null;
   error.value = null;
   resultBlob.value = null;
   progressMessage.value = null;
@@ -102,6 +146,7 @@ async function runResearch() {
     if (!start.jobId) throw new Error("Server did not return a jobId");
 
     const jobId = start.jobId;
+    batchJobId.value = jobId;
 
     const pollOnce = async (): Promise<"continue" | "stop"> => {
       const pollRes = await fetch(`${API_URL}/status/${jobId}`, {
@@ -121,7 +166,7 @@ async function runResearch() {
 
       const obj = (await pollRes.json()) as
         | { status: "processing"; message?: string; totalRows?: number; currentRow?: number; warnings?: string[] }
-        | { status: "done"; csv: string; warnings?: string[] }
+        | { status: "done"; csv?: string; warnings?: string[] }
         | { status: "error"; error: string };
 
       if (obj.status === "processing") {
@@ -133,10 +178,8 @@ async function runResearch() {
       }
 
       if (obj.status === "done") {
-        const binary = atob(obj.csv);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        resultBlob.value = new Blob([bytes], { type: "text/csv" });
+        if (!obj.csv) throw new Error("Missing CSV payload for batch result");
+        resultBlob.value = decodeCsvBase64(obj.csv);
         progressMessage.value = null;
         return "stop";
       }
@@ -149,7 +192,7 @@ async function runResearch() {
     await new Promise<void>((resolve, reject) => {
       let pollingInFlight = false;
       const FAST_INTERVAL_MS = 1000;
-      const SLOW_INTERVAL_MS = 2500;
+      const SLOW_INTERVAL_MS = 3000;
       const FAST_PHASE_DURATION_MS = 30_000;
 
       const clearPolling = (): void => {
@@ -207,6 +250,7 @@ async function runResearch() {
     }
   } finally {
     isLoading.value = false;
+    batchJobId.value = null;
     progressMessage.value = null;
     if (pollingIntervalId.value !== null) {
       clearInterval(pollingIntervalId.value);
@@ -219,8 +263,167 @@ async function runResearch() {
   }
 }
 
+async function runSingleResearch() {
+  const companyName = singleCompanyName.value.trim();
+  if (!companyName) {
+    singleError.value = "Please enter company name.";
+    return;
+  }
+
+  const normalizedDomain = normalizeWebsiteInput(singleWebsite.value);
+  if (!normalizedDomain) {
+    singleError.value = "Please enter a valid domain or URL.";
+    return;
+  }
+
+  if (singlePollingIntervalId.value !== null) {
+    clearInterval(singlePollingIntervalId.value);
+    singlePollingIntervalId.value = null;
+  }
+  if (singlePollingSwitchTimeoutId.value !== null) {
+    clearTimeout(singlePollingSwitchTimeoutId.value);
+    singlePollingSwitchTimeoutId.value = null;
+  }
+
+  singleIsLoading.value = true;
+  singleError.value = null;
+  singleProgressMessage.value = null;
+  singleWarnings.value = [];
+  singleAbortControllerRef.value = new AbortController();
+
+  try {
+    const res = await fetch(`${API_URL}/research/single`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyName, companyDomain: normalizedDomain }),
+      signal: singleAbortControllerRef.value.signal
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? `Request failed: ${res.status}`);
+    }
+
+    const start = (await res.json()) as { jobId?: string };
+    if (!start.jobId) throw new Error("Server did not return a jobId");
+    singleJobId.value = start.jobId;
+
+    const pollOnce = async (): Promise<"continue" | "stop"> => {
+      if (!singleJobId.value) return "stop";
+      const pollRes = await fetch(`${API_URL}/status/${singleJobId.value}`, {
+        method: "GET",
+        signal: singleAbortControllerRef.value?.signal
+      });
+
+      if (pollRes.status === 404) {
+        singleError.value = "Job not found. The server may have restarted.";
+        return "stop";
+      }
+
+      if (!pollRes.ok) {
+        const text = await pollRes.text().catch(() => "");
+        throw new Error(text || `Request failed: ${pollRes.status}`);
+      }
+
+      const obj = (await pollRes.json()) as
+        | { status: "processing"; message?: string; warnings?: string[] }
+        | { status: "done"; result?: string; warnings?: string[] }
+        | { status: "error"; error: string };
+
+      if (obj.status === "processing") {
+        if (obj.message) singleProgressMessage.value = obj.message;
+        const incoming = obj.warnings ?? [];
+        singleWarnings.value = Array.from(new Set([...singleWarnings.value, ...incoming]));
+        return "continue";
+      }
+
+      if (obj.status === "done") {
+        const result = (obj.result ?? "").trim() || "Not found";
+        singleResults.value = [{ id: Date.now(), text: result }, ...singleResults.value];
+        singleProgressMessage.value = null;
+        return "stop";
+      }
+
+      singleError.value = obj.error ?? "Unknown error";
+      return "stop";
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      let pollingInFlight = false;
+      const FAST_INTERVAL_MS = 1000;
+      const SLOW_INTERVAL_MS = 3000;
+      const FAST_PHASE_DURATION_MS = 30_000;
+
+      const clearPolling = (): void => {
+        if (singlePollingIntervalId.value !== null) {
+          clearInterval(singlePollingIntervalId.value);
+          singlePollingIntervalId.value = null;
+        }
+        if (singlePollingSwitchTimeoutId.value !== null) {
+          clearTimeout(singlePollingSwitchTimeoutId.value);
+          singlePollingSwitchTimeoutId.value = null;
+        }
+      };
+
+      const startPollingInterval = (intervalMs: number): void => {
+        if (singlePollingIntervalId.value !== null) {
+          clearInterval(singlePollingIntervalId.value);
+        }
+        singlePollingIntervalId.value = window.setInterval(() => {
+          if (pollingInFlight) return;
+          pollingInFlight = true;
+          void pollOnce()
+            .then((shouldStop) => {
+              if (shouldStop === "stop") stop();
+            })
+            .catch((e) => reject(e))
+            .finally(() => {
+              pollingInFlight = false;
+            });
+        }, intervalMs);
+      };
+
+      const stop = (): void => {
+        clearPolling();
+        resolve();
+      };
+
+      startPollingInterval(FAST_INTERVAL_MS);
+      singlePollingSwitchTimeoutId.value = window.setTimeout(() => {
+        startPollingInterval(SLOW_INTERVAL_MS);
+        singlePollingSwitchTimeoutId.value = null;
+      }, FAST_PHASE_DURATION_MS);
+
+      void pollOnce()
+        .then((shouldStop) => {
+          if (shouldStop === "stop") stop();
+        })
+        .catch((e) => reject(e));
+    });
+  } catch (err) {
+    if ((err as Error).name !== "AbortError") {
+      singleError.value = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    singleIsLoading.value = false;
+    singleProgressMessage.value = null;
+    if (singlePollingIntervalId.value !== null) {
+      clearInterval(singlePollingIntervalId.value);
+      singlePollingIntervalId.value = null;
+    }
+    if (singlePollingSwitchTimeoutId.value !== null) {
+      clearTimeout(singlePollingSwitchTimeoutId.value);
+      singlePollingSwitchTimeoutId.value = null;
+    }
+    singleJobId.value = null;
+  }
+}
+
 function restart() {
   abortControllerRef.value?.abort();
+  if (batchJobId.value) {
+    void fetch(`${API_URL}/cancel/${batchJobId.value}`, { method: "POST" }).catch(() => undefined);
+  }
   if (pollingIntervalId.value !== null) {
     clearInterval(pollingIntervalId.value);
     pollingIntervalId.value = null;
@@ -239,6 +442,29 @@ function restart() {
   if (fileInput.value) {
     fileInput.value.value = "";
   }
+  batchJobId.value = null;
+}
+
+function restartSingle() {
+  singleAbortControllerRef.value?.abort();
+  if (singleJobId.value) {
+    void fetch(`${API_URL}/cancel/${singleJobId.value}`, { method: "POST" }).catch(() => undefined);
+  }
+  if (singlePollingIntervalId.value !== null) {
+    clearInterval(singlePollingIntervalId.value);
+    singlePollingIntervalId.value = null;
+  }
+  if (singlePollingSwitchTimeoutId.value !== null) {
+    clearTimeout(singlePollingSwitchTimeoutId.value);
+    singlePollingSwitchTimeoutId.value = null;
+  }
+  singleCompanyName.value = "";
+  singleWebsite.value = "";
+  singleError.value = null;
+  singleWarnings.value = [];
+  singleProgressMessage.value = null;
+  singleIsLoading.value = false;
+  singleJobId.value = null;
 }
 </script>
 
@@ -289,7 +515,7 @@ function restart() {
       </div>
     </transition>
 
-    <div class="w-full max-w-[396px]">
+    <div class="w-full max-w-[420px] flex flex-col gap-3">
       <div
         class="rounded-lg border border-zinc-700/80 bg-[#161920] shadow-lg shadow-black/20 px-3.5 py-4.5 flex flex-col gap-3.5"
       >
@@ -369,7 +595,7 @@ function restart() {
           </p>
           <template v-else-if="isLoading">
             <div class="flex items-center gap-2">
-              <svg class="w-3 h-3 text-indigo-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <svg class="w-3 h-3 text-indigo-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
               </svg>
@@ -393,6 +619,107 @@ function restart() {
             >
               Download CSV
             </a>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="rounded-lg border border-zinc-700/80 bg-[#161920] shadow-lg shadow-black/20 px-3.5 py-4.5 flex flex-col gap-3.5"
+      >
+        <h3 class="text-[13px] font-semibold text-zinc-200">Single company research</h3>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-[12px] text-zinc-400">Company name</label>
+          <input
+            v-model="singleCompanyName"
+            type="text"
+            class="min-h-[31px] rounded-md border border-zinc-600/80 bg-[#12151a] px-2.5 py-2 text-[13px] text-zinc-200
+                   placeholder:text-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[#161920]"
+            placeholder="Railway (case insensitive)"
+            :disabled="singleIsLoading"
+          />
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-[12px] text-zinc-400">Website</label>
+          <input
+            v-model="singleWebsite"
+            type="text"
+            class="min-h-[31px] rounded-md border border-zinc-600/80 bg-[#12151a] px-2.5 py-2 text-[13px] text-zinc-200
+                   placeholder:text-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[#161920]"
+            placeholder="railway.com or https://railway.com/"
+            :disabled="singleIsLoading"
+          />
+          <p class="text-[11px] text-zinc-500">Accepts domain or full URL</p>
+        </div>
+
+        <div class="flex flex-col-reverse sm:flex-row gap-2">
+          <button
+            type="button"
+            class="flex-1 min-h-[24px] px-3 py-1.5 rounded-md border border-zinc-600 bg-transparent text-zinc-400 text-[13px] font-medium
+                   hover:border-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40
+                   focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-1 focus-visible:ring-offset-[#161920]
+                   active:scale-[0.98] transition-all duration-150"
+            @click="restartSingle"
+          >
+            Restart
+          </button>
+          <button
+            type="button"
+            class="flex-1 min-h-[24px] px-3 py-1.5 rounded-md bg-indigo-600 text-white text-[13px] font-semibold
+                   hover:bg-indigo-500 active:bg-indigo-700
+                   focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-[#161920]
+                   active:scale-[0.98] transition-all duration-150
+                   disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+            :disabled="singleIsLoading"
+            @click="runSingleResearch"
+          >
+            Research
+          </button>
+        </div>
+
+        <div
+          v-if="singleWarnings.length > 0"
+          class="rounded-md border border-amber-700/40 bg-amber-950/20 px-2.5 py-2 flex flex-col gap-1"
+        >
+          <p v-for="(w, i) in singleWarnings" :key="`single-warning-${i}`" class="text-[12px] text-amber-400 leading-relaxed">
+            {{ w }}
+          </p>
+        </div>
+
+        <div
+          v-if="singleIsLoading || singleError"
+          class="rounded-md border border-zinc-700/60 bg-[#12151a] px-2.5 py-2 flex flex-col gap-2"
+        >
+          <p v-if="singleError" class="text-[13px] text-red-400">
+            {{ singleError }}
+          </p>
+          <template v-else-if="singleIsLoading">
+            <div class="flex items-center gap-2">
+              <svg class="w-3 h-3 text-indigo-400 animate-spin shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <span class="text-[13px] text-zinc-400">Researching&hellip;</span>
+            </div>
+            <p v-if="singleProgressMessage" class="text-[13px] text-zinc-500 truncate">
+              {{ singleProgressMessage }}
+            </p>
+          </template>
+        </div>
+
+        <div v-if="singleResults.length > 0" class="rounded-md border border-zinc-700/60 bg-[#12151a] px-2.5 py-2 flex flex-col gap-2">
+          <p class="text-[12px] font-medium text-zinc-300">Recent results</p>
+          <div class="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+            <div
+              v-for="entry in singleResults"
+              :key="entry.id"
+              class="rounded-md border border-zinc-700/70 bg-[#0f1217] px-2.5 py-2"
+            >
+              <p class="text-[12px] text-zinc-300 whitespace-pre-wrap leading-relaxed wrap-break-word">
+                {{ entry.text }}
+              </p>
+            </div>
           </div>
         </div>
       </div>

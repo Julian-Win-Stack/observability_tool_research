@@ -9,6 +9,7 @@ export type JobState = {
   currentRow?: number;
   warnings: string[];
   csvBase64?: string;
+  singleResult?: string;
   error?: string;
   createdAtMs: number;
   updatedAtMs: number;
@@ -95,6 +96,18 @@ export function markJobDone(jobId: string, csvBase64: string): void {
   if (!job) return;
   job.status = "done";
   job.csvBase64 = csvBase64;
+  job.singleResult = undefined;
+  job.error = undefined;
+  job.updatedAtMs = Date.now();
+}
+
+export function markSingleJobDone(jobId: string, singleResult: string): void {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = "done";
+  job.singleResult = singleResult;
+  job.csvBase64 = undefined;
+  job.error = undefined;
   job.updatedAtMs = Date.now();
 }
 
@@ -103,6 +116,7 @@ export function markJobError(jobId: string, error: string): void {
   if (!job) return;
   job.status = "error";
   job.error = error;
+  job.singleResult = undefined;
   job.updatedAtMs = Date.now();
 }
 

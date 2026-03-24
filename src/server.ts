@@ -14,6 +14,7 @@ import {
   setJobStatus,
   addJobWarning,
   markJobDone,
+  markSingleJobDone,
   markJobError,
   getJob,
   markJobCancelled
@@ -24,6 +25,24 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+
+function normalizeDomainInput(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withScheme);
+    const hostname = url.hostname.trim().toLowerCase().replace(/^www\./, "");
+    return hostname || null;
+  } catch {
+    return null;
+  }
+}
 
 async function processJob(
   jobId: string,
@@ -100,6 +119,45 @@ async function processJob(
   }
 }
 
+async function processSingleJob(
+  jobId: string,
+  companyName: string,
+  companyDomain: string,
+  config: ServerConfig
+): Promise<void> {
+  try {
+    setJobStatus(jobId, "processing");
+    setJobMessage(jobId, `Processing: ${companyName}`);
+    setJobProgress(jobId, { currentRow: 1, totalRows: 1 });
+
+    const currentJob = getJob(jobId);
+    if (!currentJob || currentJob.status === "cancelled") return;
+
+    const research = await researchCompany(companyName, companyDomain, {
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      maxCompletionTokens: config.maxCompletionTokens
+    });
+
+    const jobAfterResearch = getJob(jobId);
+    if (!jobAfterResearch || jobAfterResearch.status === "cancelled") return;
+
+    if (research.startsWith("Error:")) {
+      markJobError(jobId, research);
+      return;
+    }
+
+    setJobMessage(jobId, "Done");
+    setJobProgress(jobId, { currentRow: 1, totalRows: 1 });
+    markSingleJobDone(jobId, research);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[server] Error in single job:", msg);
+    markJobError(jobId, msg);
+  }
+}
+
 app.post("/research", upload.single("csv"), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: "No CSV file provided. Use form field 'csv'." });
@@ -122,6 +180,34 @@ app.post("/research", upload.single("csv"), async (req, res) => {
 
     const jobId = createJob();
     void processJob(jobId, csvBuffer, config);
+    res.json({ jobId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[server] Error:", msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.post("/research/single", async (req, res) => {
+  const companyNameRaw = typeof req.body?.companyName === "string" ? req.body.companyName : "";
+  const companyDomainRaw = typeof req.body?.companyDomain === "string" ? req.body.companyDomain : "";
+
+  const companyName = companyNameRaw.trim();
+  if (!companyName) {
+    res.status(400).json({ error: "companyName is required" });
+    return;
+  }
+
+  const companyDomain = normalizeDomainInput(companyDomainRaw);
+  if (!companyDomain) {
+    res.status(400).json({ error: "companyDomain must be a valid domain or URL" });
+    return;
+  }
+
+  try {
+    const config = loadServerConfig();
+    const jobId = createJob();
+    void processSingleJob(jobId, companyName, companyDomain, config);
     res.json({ jobId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -161,6 +247,7 @@ app.get("/status/:jobId", (req, res) => {
     res.json({
       status: "done",
       csv: job.csvBase64 ?? "",
+      result: job.singleResult ?? "",
       warnings: job.warnings
     });
     return;
