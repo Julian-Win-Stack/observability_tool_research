@@ -707,8 +707,6 @@ function restartSingle() {
       <div
         class="rounded-lg border border-zinc-700/80 bg-[#161920] shadow-lg shadow-black/20 px-3.5 py-4.5 flex flex-col gap-3.5"
       >
-        <h3 class="text-[13px] font-semibold text-zinc-200">Single company research</h3>
-
         <div class="flex flex-col gap-2">
           <label class="text-[12px] text-zinc-400">Company name</label>
           <input
@@ -731,7 +729,6 @@ function restartSingle() {
             placeholder="railway.com or https://railway.com/"
             :disabled="singleIsLoading"
           />
-          <p class="text-[11px] text-zinc-500">Accepts domain or full URL</p>
         </div>
 
         <div class="flex flex-col-reverse sm:flex-row gap-2">
