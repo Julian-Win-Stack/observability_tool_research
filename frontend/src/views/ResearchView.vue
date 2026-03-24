@@ -17,6 +17,7 @@ const progressMessage = ref<string | null>(null);
 const warnings = ref<string[]>([]);
 const isDragging = ref(false);
 const batchJobId = ref<string | null>(null);
+const batchResults = ref<Array<{ id: number; companyName: string; website: string; text: string }>>([]);
 
 const singleCompanyName = ref("");
 const singleWebsite = ref("");
@@ -29,6 +30,39 @@ const singleProgressMessage = ref<string | null>(null);
 const singleWarnings = ref<string[]>([]);
 const singleError = ref<string | null>(null);
 const singleResults = ref<Array<{ id: number; text: string }>>([]);
+
+type TextSegment =
+  | { type: "text"; value: string }
+  | { type: "link"; value: string };
+
+function lineSegments(text: string): TextSegment[][] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const segments: TextSegment[] = [];
+      const regex = /(https?:\/\/[^\s]+)/g;
+      let last = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = regex.exec(line)) !== null) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (start > last) {
+          segments.push({ type: "text", value: line.slice(last, start) });
+        }
+        segments.push({ type: "link", value: match[0] });
+        last = end;
+      }
+
+      if (last < line.length) {
+        segments.push({ type: "text", value: line.slice(last) });
+      }
+
+      return segments.length > 0 ? segments : [{ type: "text", value: line }];
+    });
+}
 
 function decodeCsvBase64(csvBase64: string): Blob {
   const binary = atob(csvBase64);
@@ -88,6 +122,7 @@ function selectFile(file: File | null) {
   selectedFile.value = file;
   error.value = null;
   resultBlob.value = null;
+  batchResults.value = [];
   warnings.value = [];
 }
 
@@ -124,6 +159,7 @@ async function runResearch() {
   batchJobId.value = null;
   error.value = null;
   resultBlob.value = null;
+  batchResults.value = [];
   progressMessage.value = null;
   warnings.value = [];
   abortControllerRef.value = new AbortController();
@@ -166,7 +202,16 @@ async function runResearch() {
 
       const obj = (await pollRes.json()) as
         | { status: "processing"; message?: string; totalRows?: number; currentRow?: number; warnings?: string[] }
-        | { status: "done"; csv?: string; warnings?: string[] }
+        | {
+            status: "done";
+            csv?: string;
+            warnings?: string[];
+            rows?: Array<{
+              company_name: string;
+              company_domain: string;
+              observability_tool_research: string;
+            }>;
+          }
         | { status: "error"; error: string };
 
       if (obj.status === "processing") {
@@ -180,6 +225,12 @@ async function runResearch() {
       if (obj.status === "done") {
         if (!obj.csv) throw new Error("Missing CSV payload for batch result");
         resultBlob.value = decodeCsvBase64(obj.csv);
+        batchResults.value = (obj.rows ?? []).map((row, i) => ({
+          id: Date.now() + i,
+          companyName: row.company_name,
+          website: row.company_domain,
+          text: row.observability_tool_research
+        }));
         progressMessage.value = null;
         return "stop";
       }
@@ -434,6 +485,7 @@ function restart() {
   }
   selectedFile.value = null;
   resultBlob.value = null;
+  batchResults.value = [];
   error.value = null;
   progressMessage.value = null;
   warnings.value = [];
@@ -621,6 +673,35 @@ function restartSingle() {
             </a>
           </div>
         </div>
+
+        <div v-if="batchResults.length > 0" class="rounded-md border border-zinc-700/60 bg-[#12151a] px-2.5 py-2 flex flex-col gap-2">
+          <p class="text-[12px] font-medium text-zinc-300">Batch results preview</p>
+          <div class="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
+            <div
+              v-for="entry in batchResults"
+              :key="entry.id"
+              class="rounded-md border border-zinc-700/70 bg-[#0f1217] px-2.5 py-2 flex flex-col gap-1"
+            >
+              <p class="text-[11px] text-zinc-500">{{ entry.companyName }} — {{ entry.website }}</p>
+              <div class="text-[12px] text-zinc-300 leading-relaxed">
+                <p v-for="(segments, lineIdx) in lineSegments(entry.text)" :key="lineIdx">
+                  <template v-for="(segment, segIdx) in segments" :key="`${lineIdx}-${segIdx}`">
+                    <a
+                      v-if="segment.type === 'link'"
+                      :href="segment.value"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-400/60 underline-offset-2"
+                    >
+                      {{ segment.value }}
+                    </a>
+                    <span v-else>{{ segment.value }}</span>
+                  </template>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div
@@ -716,9 +797,22 @@ function restartSingle() {
               :key="entry.id"
               class="rounded-md border border-zinc-700/70 bg-[#0f1217] px-2.5 py-2"
             >
-              <p class="text-[12px] text-zinc-300 whitespace-pre-wrap leading-relaxed wrap-break-word">
-                {{ entry.text }}
-              </p>
+              <div class="text-[12px] text-zinc-300 whitespace-pre-wrap leading-relaxed wrap-break-word">
+                <p v-for="(segments, lineIdx) in lineSegments(entry.text)" :key="lineIdx">
+                  <template v-for="(segment, segIdx) in segments" :key="`${lineIdx}-${segIdx}`">
+                    <a
+                      v-if="segment.type === 'link'"
+                      :href="segment.value"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-400/60 underline-offset-2"
+                    >
+                      {{ segment.value }}
+                    </a>
+                    <span v-else>{{ segment.value }}</span>
+                  </template>
+                </p>
+              </div>
             </div>
           </div>
         </div>

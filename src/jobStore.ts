@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { OutputRow } from "./csvWriter.js";
 
 export type JobStatus = "pending" | "processing" | "cancelled" | "done" | "error";
 
@@ -8,6 +9,7 @@ export type JobState = {
   totalRows?: number;
   currentRow?: number;
   warnings: string[];
+  batchRows?: OutputRow[];
   csvBase64?: string;
   singleResult?: string;
   error?: string;
@@ -91,10 +93,11 @@ export function addJobWarning(jobId: string, warning: string): void {
   job.updatedAtMs = Date.now();
 }
 
-export function markJobDone(jobId: string, csvBase64: string): void {
+export function markJobDone(jobId: string, csvBase64: string, batchRows: OutputRow[]): void {
   const job = jobs.get(jobId);
   if (!job) return;
   job.status = "done";
+  job.batchRows = batchRows;
   job.csvBase64 = csvBase64;
   job.singleResult = undefined;
   job.error = undefined;
@@ -105,6 +108,7 @@ export function markSingleJobDone(jobId: string, singleResult: string): void {
   const job = jobs.get(jobId);
   if (!job) return;
   job.status = "done";
+  job.batchRows = undefined;
   job.singleResult = singleResult;
   job.csvBase64 = undefined;
   job.error = undefined;
@@ -116,6 +120,7 @@ export function markJobError(jobId: string, error: string): void {
   if (!job) return;
   job.status = "error";
   job.error = error;
+  job.batchRows = undefined;
   job.singleResult = undefined;
   job.updatedAtMs = Date.now();
 }

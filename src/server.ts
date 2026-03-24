@@ -111,7 +111,7 @@ async function processJob(
 
     const csvString = await rowsToCsvString(rows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
-    markJobDone(jobId, csvBase64);
+    markJobDone(jobId, csvBase64, rows);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[server] Error in job:", msg);
@@ -248,6 +248,7 @@ app.get("/status/:jobId", (req, res) => {
       status: "done",
       csv: job.csvBase64 ?? "",
       result: job.singleResult ?? "",
+      rows: job.batchRows ?? [],
       warnings: job.warnings
     });
     return;
