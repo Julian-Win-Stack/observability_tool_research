@@ -74,8 +74,7 @@ function cleanDomain(domain: string): string {
 
 function buildQueries(companyName: string, companyDomain: string): string[] {
   return [
-    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`,
-    `site:${companyDomain} observability OR monitoring OR tracing OR "Datadog" OR "Grafana" OR "New Relic"`
+    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`
   ];
 }
 
