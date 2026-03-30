@@ -74,7 +74,7 @@ function cleanDomain(domain: string): string {
 
 function buildQueries(companyName: string, companyDomain: string): string[] {
   return [
-    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`
+    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb" OR "Observability Tool"`
   ];
 }
 
@@ -152,7 +152,7 @@ export async function researchCompany(
           Accept: "application/json"
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000)
+        signal: AbortSignal.timeout(90_000)
       });
 
       if (!res.ok) {

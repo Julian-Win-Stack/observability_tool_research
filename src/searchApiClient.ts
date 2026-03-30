@@ -29,7 +29,7 @@ export async function searchGoogle(query: string): Promise<SearchResult[]> {
   const res = await fetch(url.toString(), {
     method: "GET",
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000)
+    signal: AbortSignal.timeout(60_000)
   });
 
   if (!res.ok) {
