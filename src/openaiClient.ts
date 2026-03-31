@@ -102,7 +102,7 @@ async function gatherSearchCandidates(
     return true;
   });
 
-  return unique.slice(0, 5);
+  return unique.slice(0, 10);
 }
 
 type ChatCompletionsResponse = {
