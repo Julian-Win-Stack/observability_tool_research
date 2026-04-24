@@ -27,7 +27,6 @@ function buildSystemPrompt(): string {
     "2. <tool name> : https://example.com/path",
     "3. <tool name> : https://example.com/path",
     "",
-    "Only return up to 3 tools.",
     "It is better to return 'Not found' than to guess.",
   ].join("\n");
 }
