@@ -8,13 +8,12 @@ Built to eliminate hours of manual research per week across an entire GTM team.
 
 ## Live Demo
 
-> **Not available publicly.** This tool runs on my startup's API keys (Azure OpenAI + SearchAPI), and every query has a real cost. I can walk through a live demo on request.
-
+> **Not available publicly.** This tool runs on my startup's API keys (Azure OpenAI + SearchAPI), and every query has a real cost. 
 ---
 
 ## Problem
 
-In our GTM motion, we target companies based on their observability stack - specifically, whether they use Datadog, Grafana, New Relic, or similar tools.
+In our GTM motion, we target companies based on their observability stack - like, whether they use Datadog, Grafana, New Relic, or similar tools.
 
 The old process:
 
@@ -156,14 +155,3 @@ docker run --env-file .env -p 3000:3000 observability-research
 
 Open **http://localhost:3000**.
 
----
-
-## Why I Built This
-
-I'm a builder at an early-stage startup. Our GTM team was spending hours every week manually researching which companies use which observability tools - just to qualify accounts.
-
-I tried off-the-shelf AI research tools. They weren't reliable enough for this specific task. So I built a purpose-built tool that combines targeted search with structured LLM analysis to get evidence-backed results.
-
-It now saves the team multiple hours per week and has become part of our standard account research workflow.
-
-The best tools come from real problems. This one came from mine.
